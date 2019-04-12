@@ -23,18 +23,17 @@ from astropy.time import Time
 plt.switch_backend('Qt4Agg')
 
 # RETRIEVE DATA
-data = Dataset("dscovr_single_light_timeseries.nc")
+data = Dataset("dscovr_single_light_timeseries.nc") # netCDF4 module used here
 data.dimensions.keys()
-radiance = data.variables["normalized"][:] # lightcurves for different wavelengths
+radiance = data.variables["normalized"][:] # lightcurves for 10 wavelengths
 
 # Constants used throughout
 SOLAR_IRRAD_780 = 1.190 # Units: W m^-2 nm^-1
-FILTER_WIDTH_780 = 1.8 # According to DSCOVR paper; units: nm
-#FILTER_WIDTH_780 = 2.0 # According to DSCOVR-MODIS calibration paper; units: nm
+FILTER_WIDTH_780 = 1.8 # According to Jiang paper, units: nm
 
 # Constant arrays used throughout
 RAD_780 = radiance[9] # lightcurves for 780 nm
-#time in seconds starting June 13, 2015 00:00:00 UTC
+#time in seconds since June 13, 2015 00:00:00 UTC
 TIME_SECS = radiance[10]
 #time in days since June 13, 2015  00:00:00 UTC
 TIME_DAYS = TIME_SECS/86148.0 #86148 = 23.93h
@@ -754,11 +753,8 @@ def map_into_eckert(params, nlats=200, nlons=200, day=None):
     if type(day) in [int, float]:
         t, phi, ref, ref_err, nans = EPIC_data(day, False) 
         # cartopy longitude decreases as the planet spins and is 0 at Greenwich
-        # the forward model does the same but is 0 at 180 deg West from Greenwich
-        # we compute the offset from the definition of 0 in the forward model
-        phi_offset = np.deg2rad(360-phi[0]) 
-        
-        lons = np.linspace(2*np.pi-phi_offset, -phi_offset, nlons) # longitude spanned
+        # the forward model does the same but is 0 at 180 deg West from Greenwich        
+        lons = np.linspace(2*np.pi, 0, nlons) # longitude spanned
 
     # if we are showing multi-day real data or artificial results    
     else: 
@@ -832,7 +828,7 @@ def map_into_eckert(params, nlats=200, nlons=200, day=None):
     elif type(day) == list: # if several days, as when obtaining minima
         start_day = date_after(day[0]) # first date
         end_day = date_after(day[-1]) # final date
-        dayspan = day[-1]-day[0] # time in days spanned by map
+        dayspan = day[-1]-day[0]+1 # time in days spanned by map
         days_used = len(day) # how many days we actually have data for 
         plt.title("Albedo minima from "+start_day+" to "+end_day+
                   " [%d day(s) missing]"%(dayspan-days_used))
@@ -866,12 +862,12 @@ def date_after(d):
 # TESTING
 ### Testing MCMC ###
 
-TEST_DAY = 415 # the date of interest, if a specific date is desired
-NDIM = 6 # the no. of albedo slices
-NWALKERS = 200 # the no. of walkers
-NSTEPS = 300 # the no. of steps to take
-BURNIN = 50 # the no. of steps in the burnin period
-PERCENTILES = [16,84] # 1 or more percentiles (if >1, provide an array)
+TEST_DAY = 697 # the date of interest, if a specific date is desired
+NDIM = 8 # the no. of albedo slices
+NWALKERS = 100 # the no. of walkers
+NSTEPS = 500 # the no. of steps to take
+BURNIN = 150 # the no. of steps in the burnin period
+PERCENTILE = 84 # 1 or more percentiles (if >1, provide an array)
 
 def test_all(ndim, nwalkers, nsteps, burnin, percentiles=None, datafile=None, 
              day=None):
@@ -889,7 +885,7 @@ def test_all(ndim, nwalkers, nsteps, burnin, percentiles=None, datafile=None,
     
     if day == None: # if no date specified 
         # load in great days (no nans and more than 17 time points in 24h)
-        df = open("good_days.dat", "r")
+        df = open("great_days.dat", "r")
         contents = df.readlines()
         great_days = [int(c) for c in contents]
         test_date = random.choice(great_days)
@@ -913,43 +909,42 @@ def test_all(ndim, nwalkers, nsteps, burnin, percentiles=None, datafile=None,
     #cornerplot(chaino, burnin) # corner plot
     
     # MCMC results 
-    #albmap = mcmc_results(chaino, burnin) # get the map
-    #print(str(np.round(albmap,3))) # print the params, rounded to 3 decimals
+    albmap = mcmc_results(chaino, burnin) # get the map
+    print(str(np.round(albmap,3))) # print the params, rounded to 3 decimals
     
     #if percentiles != None: 
     #    alb_pers = mcmc_percentiles(chaino, burnin, percentiles) # get percentiles
     #    print(str(np.round(alb_pers,3))) # print percentiles, rounded to 3 decimals
     
     # Write to files
-    if datafile != None:    
-        mcmc_write(test_date, chaino, burnin, datafile) # mean params 
+    #if datafile != None:    
+    #    #mcmc_write(test_date, chaino, burnin, datafile) # mean params 
     #    if percentiles != None:
     #        mcmc_write_percentile(test_date, chaino, burnin, percentiles, datafile) # percentiles 
     
     # Quality of MCMC fits: plots/Eckert projections
     #map_into_fwdmod(chaino, burnin, day=test_date) # one map
     #map_into_fwdmod(chaino, burnin, nsamples=50, day=test_date) # plot multiple maps
-    #map_into_eckert(albmap, day=test_date) # plot an eckert projection
+    map_into_eckert(albmap, day=test_date) # plot an eckert projection
 
 #test_all(NDIM, NWALKERS, NSTEPS, BURNIN) # random great day
-#test_all(NDIM, NWALKERS, NSTEPS, BURNIN, percentiles=PERCENTILES, day=TEST_DAY) # a specific date, set above 
+#test_all(NDIM, NWALKERS, NSTEPS, BURNIN, percentiles=PERCENTILE, day=TEST_DAY) # a specific date, set above 
  
 
 # In[]:
 # WRITING TO FILES 
 
 # Load in "great" days
-df = open("great_days.dat", "r")
-contents = df.readlines()
-great_days = [int(c) for c in contents]
-df.close()
+#df = open("great_days.dat", "r")
+#contents = df.readlines()
+#great_days = [int(c) for c in contents]
+#df.close()
 
 # Writing all of the mean MCMC params to a file
 # To use, first comment out mcmc_write_percentile()
 # And uncomment mcmc_write() 
 #for g in great_days:
-#    if g >= 325:
-#        test_all(NDIM, NWALKERS, NSTEPS, BURNIN, datafile="results_all_six.dat", 
+#    test_all(NDIM, NWALKERS, NSTEPS, BURNIN, datafile="results_all_six.dat", 
 #             day=g)
 
 # Writing all of the 16th percentiles to a file
@@ -957,14 +952,15 @@ df.close()
 # Uncomment mcmc_write_percentile()
 # Set the percentile above 
 #for g in great_days:
-#    test_all(NDIM, NWALKERS, NSTEPS, BURNIN, "results_all_16per.dat", g)
+#    test_all(NDIM, NWALKERS, NSTEPS, BURNIN, PERCENTILE, 
+#             "results_all_six_16per.dat", g)
     
 # Writing all of the 84th percentiles to a file
 # Comment out mcmc_write()
 # Uncomment mcmc_write_percentile()
-# Set the percentile above 
 #for g in great_days:
-#    test_all(NDIM, NWALKERS, NSTEPS, BURNIN, "results_all_84per.dat", g)
+#    test_all(NDIM, NWALKERS, NSTEPS, BURNIN, PERCENTILE, 
+#             "results_all_six_84per_new.dat", g)
 
 # In[]:
 # OTHER TESTS #
