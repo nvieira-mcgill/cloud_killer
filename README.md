@@ -5,6 +5,7 @@ Software to attempt to remove the effects of cloud coverage from albedo maps of 
 
 # Modules you'll need 
 This software makes use of certain modules you may not already have. These include:
+
 netCDF4.Dataset -- For loading in the EPIC data.
 
 emcee -- "The MCMC Hammer." Developed by D. Foreman-Mackey et al. Used for all of the Markov chain Monte-Carlo in these scripts.
@@ -17,9 +18,13 @@ astropy (specifically, astropy.time.Time) -- Widely-used software for astrophysi
 
 # Where to get these modules:
 netCDF4: http://unidata.github.io/netcdf4-python/netCDF4/index.html
+
 emcee: http://dfm.io/emcee/current/#user-guide
+
 corner: https://corner.readthedocs.io/en/latest/install.html
+
 cartopy: https://scitools.org.uk/cartopy/docs/latest/installing.html#installing
+
 astropy: http://docs.astropy.org/en/stable/install.html
 
 # How to use it 
