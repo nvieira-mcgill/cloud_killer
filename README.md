@@ -1,8 +1,6 @@
 # cloud_killer
 Software to attempt to remove the effects of cloud coverage from albedo maps of Earth using Markov chain Monte-Carlo methods. Developed under the supervision of Professor N. Cowan at McGill University from Jan-April 2019. Credit also goes to McGill students Elisa Jacquet and Juliette Geoffrion for their work on previous versions of this project.
 
-# What this software does
-
 # Modules you'll need 
 This software makes use of certain modules you may not already have. These include:
 
@@ -29,6 +27,6 @@ astropy: http://docs.astropy.org/en/stable/install.html
 
 # How to use this software
 
-Two scripts here make up the actual software, whereas the scripts lib_test.py and minima_test.py are used for debugging. 
+See: https://github.com/nvieira-mcgill/cloud_killer/wiki#how-to-use-this-software
 
 # Known bugs 
