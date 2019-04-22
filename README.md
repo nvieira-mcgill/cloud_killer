@@ -29,4 +29,6 @@ astropy: http://docs.astropy.org/en/stable/install.html
 
 # How to use this software
 
+Two scripts here make up the actual software, whereas the scripts lib_test.py and minima_test.py are used for debugging. 
+
 # Known bugs 
