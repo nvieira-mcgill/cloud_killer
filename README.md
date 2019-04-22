@@ -27,6 +27,6 @@ cartopy: https://scitools.org.uk/cartopy/docs/latest/installing.html#installing
 
 astropy: http://docs.astropy.org/en/stable/install.html
 
-# How to use it 
+# How to use this software
 
 # Known bugs 
