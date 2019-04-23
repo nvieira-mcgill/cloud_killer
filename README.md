@@ -27,6 +27,8 @@ astropy: http://docs.astropy.org/en/stable/install.html
 
 # How to use this software
 
-See: https://github.com/nvieira-mcgill/cloud_killer/wiki#how-to-use-this-software
+First, you'll need the EPIC data itself. This can be provided by Professor Nicolas Cowan. 
+
+Documentation and a step-by-step guide on the use of this software can be seen here: https://github.com/nvieira-mcgill/cloud_killer/wiki#how-to-use-this-software
 
 # Known bugs 
