@@ -86,7 +86,7 @@ def run_all(ndim, nwalkers, nsteps, burnin, percentiles=None, datafile=None,
 # random great day:
 run_all(NDIM, NWALKERS, NSTEPS, BURNIN) 
 # a specific date, set above 
-#run_all(NDIM, NWALKERS, NSTEPS, BURNIN, percentiles=PERCENTILE, day=TEST_DAY) 
+run_all(NDIM, NWALKERS, NSTEPS, BURNIN, percentiles=PERCENTILE, day=TEST_DAY) 
 
 # In[]:
 # WRITING TO FILES 
@@ -101,7 +101,7 @@ run_all(NDIM, NWALKERS, NSTEPS, BURNIN)
 # To use, first comment out mcmc_write_percentile() in run_all()
 # And uncomment mcmc_write() 
 #for g in great_days:
-#    run_all(NDIM, NWALKERS, NSTEPS, BURNIN, datafile="results_all_six.dat", 
+#    run_all(NDIM, NWALKERS, NSTEPS, BURNIN, datafile="results.dat", 
 #             day=g)
 
 # Writing all of the 16th percentiles to a file
@@ -110,11 +110,11 @@ run_all(NDIM, NWALKERS, NSTEPS, BURNIN)
 # Set the percentile above 
 #for g in great_days:
 #    run_all(NDIM, NWALKERS, NSTEPS, BURNIN, PERCENTILE, 
-#             "results_all_six_16per.dat", g)
+#             "results_16per.dat", g)
     
 # Writing all of the 84th percentiles to a file
 # Comment out mcmc_write() in run_all()
 # Uncomment mcmc_write_percentile()
 #for g in great_days:
 #    run_all(NDIM, NWALKERS, NSTEPS, BURNIN, PERCENTILE, 
-#             "results_all_six_84per_new.dat", g)
+#             "results_84per.dat", g)

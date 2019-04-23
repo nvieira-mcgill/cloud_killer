@@ -54,11 +54,11 @@ for b in batches:
     res = ck.MCMC_batch(results, results_16per, results_84per, b) # get results
     
     # if you want plots which just show minima:
-    res.plot_minima() # plot the minima of a result
-    plt.savefig("batch"+str(counter)+"_"+str(res.ndim)+"slice.pdf")
+    #res.plot_minima() 
+    #plt.savefig("batch"+str(counter)+"_"+str(res.ndim)+"slice.pdf")
     
     # if you want Eckert projections:
-    #res.plot_minima(eckert=True) # plot the minima of a result
-    #plt.savefig("batch"+str(counter)+"_eck_"+str(res.ndim)+"slice.pdf")
+    res.plot_minima(eckert=True)
+    plt.savefig("batch"+str(counter)+"_eck_"+str(res.ndim)+"slice.pdf")
     plt.close()
         
