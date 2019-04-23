@@ -3,10 +3,20 @@
 """
 Created on Wed Jan 30 09:13:38 2019
 
-@author: nvieira
+@author: Nicholas Vieira 
+
+A library of functions to solve the inverse problem of obtaining a planet's 
+albedo map via its observed light curve. Used in conjunction with 
+cloud_killer.py to try and obtain cloudless albedo maps by examining 
+several days' albedo maps. 
+
+The code here is in part inspired by the code written by Elisa Jacquet, a 
+McGill student who worked on this project in Fall 2018.
+
+To test this script, use the script lib_test.py.  
 """
 
-# modules which comes with all (most) python installs
+# modules which come with all (most) python installs
 import numpy as np 
 import scipy.optimize as op
 import matplotlib.pyplot as plt 
@@ -29,7 +39,6 @@ radiance = data.variables["normalized"][:] # lightcurves for 10 wavelengths
 
 # Constants used throughout
 SOLAR_IRRAD_780 = 1.190 # Units: W m^-2 nm^-1
-FILTER_WIDTH_780 = 1.8 # According to Jiang paper, units: nm
 
 # Constant arrays used throughout
 RAD_780 = radiance[9] # lightcurves for 780 nm
@@ -39,18 +48,20 @@ TIME_SECS = radiance[10]
 TIME_DAYS = TIME_SECS/86148.0 #86148 = 23.93h
 
 #longitude at SOP/SSP: convert UTC at SOP/SSP to longitude 
-#longitude is 0 (2pi) at t=0 and decreases with time
+#longitude is 2pi at t=0 and decreases with time
 SOP_LONGITUDE = [(2*np.pi-(t%86148.0)*(2*np.pi/86148.0))%(2*np.pi) for t in TIME_SECS]
 #longitude in degrees rather than radians
-SOP_LONGITUDE_DEG = [l*180.0/np.pi for l in SOP_LONGITUDE]
+#SOP_LONGITUDE_DEG = [l*180.0/np.pi for l in SOP_LONGITUDE]
+SOP_LONGITUDE_DEG = np.rad2deg(SOP_LONGITUDE)
 
 # In[ ]:
+# EPIC DATA
 def EPIC_data(day, plot=True):
     """
     Input: a date (int) after 13 June 2015 00:00:00, a boolean indicating 
     whether or not to plot the data
     Output: time, longitude (deg), apparent albedo, error on apparent albedo, 
-    bool indicating if dataset contains NaNs
+    a bool indicating if dataset contains NaNs
     """
     # starting on the desired day
     n=0
@@ -58,11 +69,13 @@ def EPIC_data(day, plot=True):
         n += 1 # this n is where we want to start
         
     # EPIC takes data between 13.1 to 21.2 times per day
-    # need to import ~22 observations and then truncate to only one day
+    # need to import 22 observations and then truncate to only one day
     t = TIME_DAYS[n:n+22]
     longitude = SOP_LONGITUDE_DEG[n:n+22]
     flux_rad = RAD_780[n:n+22] # Units: W m^-2 nm^-1
-    reflectance = flux_rad*np.pi/SOLAR_IRRAD_780 # Units: unitless
+    
+    # conversion to "reflectance" according to Jiang paper
+    reflectance = flux_rad*np.pi/SOLAR_IRRAD_780 
 
     # truncate arrays to span one day only
     while ((t[-1] - t[0]) > 1.0):   # while t spans more than one day
@@ -77,16 +90,18 @@ def EPIC_data(day, plot=True):
     gaussian_noise = np.random.normal(0, 0.02*np.mean(reflectance), len(reflectance))
     reflectance += gaussian_noise
     
-    contains_nan = False # check for nans in data
+    # check for nans in the reflectance data
+    contains_nan = False 
     number_of_nans = 0
     for f in flux_rad:
         if math.isnan(f) == True:
             number_of_nans += 1
             contains_nan = True     
-    if contains_nan:
+    if contains_nan: # data not usable
         print("CAUTION: "+str(number_of_nans)+" points in this set are NaN")
         return t, longitude, reflectance, reflectance_err, contains_nan
-     
+    
+    # if we want to plot the raw data
     if plot:
         # plotting reflectance over time
         fig = plt.figure()
@@ -110,10 +125,13 @@ def EPIC_data(day, plot=True):
     
 def kernel(longitude, phi_obs):
     """
-    Input: an array of longitudes and the SOP phi
-    Output: the kernel
+    Input: an array of longitudes and the sub-observer longitude phi_obs
+    
+    Computes the kernel K(theta,phi,t) predicted by the forward model.
+    
+    Output: the kernel of the forward model
     """
-    # I=V in this case since the SOP and SSP are the same at L1, but we choose 
+    # I=V in this case since the SOP and SSP are the same at L1, and we choose 
     # to fix sub-observer/sub-stellar latitude at pi/2 
     V = np.cos(longitude[...,np.newaxis] - phi_obs)
     V[V<0] = 0 #set values <0 to be = 0
@@ -121,17 +139,19 @@ def kernel(longitude, phi_obs):
     return V*V # K=I*V=V*V
 
 
-def lightcurve(albedos, time_days=1.0, long_frac=1.0, n=10000, phi_obs_0 = 0.0, 
+def lightcurve(albedos, time_days=1.0, long_frac=1.0, n=10000, phi_obs_0=0.0, 
                plot=False, alb=False): 
     """
     Input: an array of albedos, the time in days which the model should span
-    (default: 1.0), the longitude (as a fraction of 2pi) which the model should 
-    span (default: 1.0), the no. of points n to generate (default 10000), 
-    the initial sub-observer longitude (default: 0.0), a 
-    boolean indicating whether or not to plot the lightcurve (default: False), 
-    and a boolean indicating whether to return the reflectance or to 
-    apply the multiplicative factor of 3/2 such that the lightcurve's units 
-    match those of EPIC data
+    (default: 1.0), the longitude as a fraction of 2pi which the model should 
+    span (default: 1.0), the no. of points n to generate (default: 10000), 
+    the initial sub-observer longitude (default: 0.0), a boolean indicating 
+    whether or not to plot the lightcurve (default: False), and a boolean 
+    indicating whether to return the reflectance or to apply the 
+    multiplicative factor of 3/2 such that the lightcurve's units match those 
+    of EPIC data
+    
+    Computes the lightcurve A*(t) predicted by the forward model.
     
     Output: the lightcurve, in units of reflectance or apparent albedo 
     """
@@ -156,13 +176,14 @@ def lightcurve(albedos, time_days=1.0, long_frac=1.0, n=10000, phi_obs_0 = 0.0,
     if alb: # if we want units in agreement with EPIC data
         reflectance *= 3.0/2.0 # multiply by 3/2
         
+    # if we want to plot the lightcurve
     if plot:
         fig = plt.figure()
         ax1 = fig.add_subplot(111)    
         ax1.plot(time, reflectance, color='red')
-        if alb:
+        if alb: # if we applied the 3/2 factor
             ax1.set_ylabel("Apparent Albedo "+r"$A^*$")
-        else:
+        else: 
             ax1.set_ylabel("Reflectance")
         ax1.set_xlabel("Time [h]")
         plt.show()
@@ -174,9 +195,11 @@ def fit_EPIC(day, plot_raw=False, verbose=False):
     """
     Input: a day of interest in the EPIC data, a boolean indicating whether to
     plot the raw data separately, and a boolean indicating whether to print 
-    the timespan, phi-span, and initial phi of the fit.
+    the timespan, phi-span, and initial phi of the fit
     
-    Fits the chosen day of EPIC data with the forward model (plug'n'chug.)
+    "Fits" the chosen day of EPIC data with the forward model by just plugging 
+    in the EPIC data directly. This amounts to interpreting the lightcurve 
+    A*(t) as an albedo map A(phi).
     
     Output: None
     """
@@ -187,14 +210,15 @@ def fit_EPIC(day, plot_raw=False, verbose=False):
     phispan = timespan # phi (as a frac of 2pi) spanned by EPIC data
     
     if verbose:
-        print("FITTING EPIC DATA:")
+        print("Plugging EPIC data directly into forward model:")
         print("Timespan: %f days"%timespan)
         print("Phi-span: %f*2pi"%phispan)
         print("Initial "+r"$\phi_o$ = %f deg"%phi[0])
     
     # fit the model to the EPIC data
     phi_obs_init = phi[0]*np.pi/180.0 # the initial phi_obs in rad
-    # generate the light curve with 10,000 points, but do not plot
+    # generate the lightcurve with 10,000 points, but do not plot
+    # alb=True such that the forward model matches the data 
     model_time, model_ref = lightcurve(ref, timespan, phispan, 10000, 
                                        phi_obs_init, plot=False, alb=True)
     
@@ -205,11 +229,12 @@ def fit_EPIC(day, plot_raw=False, verbose=False):
     ax.plot(model_time, model_ref, label="Forward model", color='red')
     ax.set_ylabel("Apparent Albedo"+r" $A^*$")
     ax.set_xlabel("Time [h]")
-    ax.set_title("EPIC fit - plugging into forward model"+
+    ax.set_title("EPIC data - plugging into forward model"+
                  r" ["+r"$d = $"+date_after(day)+
                  ", $\phi_0 = $"+"%.1f]"%phi[0])
     plt.rcParams.update({'font.size':18})
     plt.legend()
+    
     
 def fit_EPIC_maxlike(day, ndim, plot_raw=False, verbose=False):
     """
@@ -229,7 +254,7 @@ def fit_EPIC_maxlike(day, ndim, plot_raw=False, verbose=False):
     phispan = timespan # phi (as a frac of 2pi) spanned by EPIC data
     
     if verbose:
-        print("FITTING EPIC DATA:")
+        print("Fitting EPIC data by maximizing likelihood:")
         print("Timespan: %f days"%timespan)
         print("Phi-span: %f*2pi"%phispan)
         print("Initial "+r"$\phi_o$ = %f deg"%phi[0])
@@ -239,10 +264,10 @@ def fit_EPIC_maxlike(day, ndim, plot_raw=False, verbose=False):
     
     # get the albedo parameters which maximize the likelihood
     alb_guess = [0.25 for i in range(ndim)]
-    fit_params = opt_lnlike(alb_guess, t, ref, ref_err) # maximize the likelihood 
-    print(fit_params)
+    fit_params = opt_lnlike(alb_guess, t, ref, ref_err) # maximize likelihood 
     
-    # generate the light curve with 10,000 points, but do not plot
+    # generate the lightcurve with 10,000 points, but do not plot
+    # alb=True such that the forward model matches the data
     model_time, model_ref = lightcurve(fit_params, timespan, phispan, 10000, 
                                        phi_obs_init, plot=False, alb=True)
     
@@ -270,29 +295,29 @@ def chisq_calc(data, data_err, model, reduced=False, verbose=False):
     chisq to return and a boolean indicating whether to print the reduced chisq
     Output: chisq OR rchisq
     
-    * CURRENTLY UNUSED. *
-    
+    Currently unused.
     """
     chisq_num = np.power(np.subtract(data,model), 2) # (data-model)**2
     chisq_denom = np.power(data_err, 2) # (error)**2
     chisq = sum(chisq_num/chisq_denom)
     rchisq = chisq/len(data) # reduced chisq aka chisq per datum
     
-    if verbose and reduced:
+    if reduced and verbose:
         print("mean chisq per datum = ",np.mean(rchisq))
-    if reduced:
+        return rchisq
+    elif reduced:
         return rchisq
     return chisq
 
     
 def lnlike(alpha, time, ref, ref_err):
     """
-    Input: an array of albedos to feed into the forward model, array of times 
-    of measurements and arrays of reflectances and errors on reflectances.
+    Input: array of albedos A(phi) to feed into the forward model and the time, 
+    lightcurve, and error on the lightcurve of the data being fit
     
-    Feeds the albedos into the forward model and produces a model; compares 
-    the measurements to the data, then assesses the likelihood of a set of 
-    given observations. Likelihood assessed using chisq. 
+    Feeds the albedos into the forward model and produces a model, compares 
+    the model to the data, then assesses the likelihood of a set of 
+    given observations. Likelihood assessed using chisq.
     
     Output: ln(likelihood)
     """
@@ -317,13 +342,13 @@ def lnlike(alpha, time, ref, ref_err):
 
 def opt_lnlike(alpha, time, ref, ref_err):
     """
-    Input: Guesses for the parameters to be fit for (alpha, an array of 
-    albedos) and the time, light curve, and error on the light curve of the
-    data being fit 
+    Input: guesses for the fit parameters (alpha, an array of albedos, 
+    representing A(phi)) and the time, lightcurve, and error on the lightcurve 
+    of the data being fit 
     
     Maximizes the ln(likelihood).
     
-    Output: the values of albedos with maximum likelihood
+    Output: The values of albedos with maximum likelihood
     """
     nll = lambda *args: -lnlike(*args) # return -lnlike of args
     # boundaries on the possible albedos:
@@ -336,23 +361,25 @@ def opt_lnlike(alpha, time, ref, ref_err):
 
 def lnprior(alpha):
     """
-    Input: Array of guesses for albedos of the slices
+    Input: guesses for the fit parameters (alpha, an array of albedos,
+    representing A(phi))
     Output: The ln(prior) for a given set of albedos 
     """
-    if np.all(alpha>0.0) and np.all(alpha<1.0):
+    if np.all(alpha>0.0) and np.all(alpha<1.0): # if valid albedos
         return 0.0
-    return -np.inf
+    return -np.inf # if not, probability goes to 0 
 
 
 def lnpost(alpha, time, ref, ref_err):
     """
-    Input: guesses for albedos (an array alpha) and data to which we compare 
-    (time, reflectance, and error on reflectances)
+    Input: guesses for the fit parameters (alpha, an array of albedos,
+    representing A(phi)) and the time, lightcurve, and error on the lightcurve 
+    of the data being fit 
     Output: ln(posterior)
     """
     lp = lnprior(alpha)
-    if not np.isfinite(lp): # if ln(prior) is negative inf (prior->0) 
-        return -np.inf      # then ln(post) is negative inf too
+    if not np.isfinite(lp): # if ln(prior) is -inf (prior->0) 
+        return -np.inf      # then ln(post) is -inf too
     return lp + lnlike(alpha, time, ref, ref_err)
 
 # In[]:
@@ -360,32 +387,52 @@ def lnpost(alpha, time, ref, ref_err):
     
 def init_walkers(alpha, time, ref, ref_err, ndim, nwalkers):
     """
-    Input: the guesses for albedo alpha, the data (time, ref, ref_err) needed
-    to optimize the likelihood, the number of dimensions (i.e., albedo 
-    slices to be fit), and the number of walkers to initialize
+    Input: guesses for the fit parameters (alpha, an array of albedos,
+    representing A(phi)), the time, lightcurve, and error on the lightcurve of 
+    the data being fit, the number of dimensions (i.e., albedo  slices to be 
+    fit), and the number of walkers to initialize
     
-    Initializes the walkers in an albedo-space in a gaussian ball centered 
-    on the parameters which maximize the likelihood 
+    Initializes the walkers in albedo-space in a Gaussian "ball" centered 
+    on the parameters which maximize the likelihood.
     
     Output: the initial positions of all walkers in the ndim-dimensional 
     parameter space
     """
-    opt_albs = opt_lnlike(alpha, time, ref, ref_err)
+    opt_albs = opt_lnlike(alpha, time, ref, ref_err) # mazimize likelihood
+    # generate walkers in Gaussian ball
     pos = [opt_albs + 1e-4*np.random.randn(ndim) for i in range(nwalkers)]
     return pos
 
 
-def make_chain(day, nwalkers, nsteps, ndim):
+def make_chain(nwalkers, nsteps, ndim, day=None, alpha=None):
     """
-    Input: the day in the EPIC data of interest, the number of albedo slices 
-    (parameters) being fit, the number of walkers, and the number of steps 
-    to take in the chain
+    Input: the number of albedo slices (parameters) being fit, the number of 
+    walkers, and the number of steps to take in the chain, and either the day
+    of interest in the EPIC data or an array of artificial albedos 
     
-    Runs MCMC on EPIC data for the given day of interest. 
+    Runs MCMC on either EPIC data for the given day of interest to see if MCMC 
+    can obtain the map A(phi) which produced the lightcurve, OR, runs MCMC with
+    some artificial albedo map A(phi) to see if MCMC can recover the input map.
     
     Output: an emcee sampler object's chain
     """
-    t, phi, r, r_err, nans = EPIC_data(day, False) # get data
+    
+    # if making chain for real EPIC data
+    # if both a day and synthetic albedos are supplied, array is ignored 
+    if day != None:
+        t, phi, r, r_err, nans = EPIC_data(day, False) # get data
+    # else if making chain for artificial data
+    elif alpha != None: 
+        t, r = lightcurve(alpha, alb=True)
+        r_err = 0.02*r # assuming 2% error     
+        # add gaussian noise to the data with a variance of up to 2% mean app alb
+        gaussian_noise = np.random.normal(0, 0.02*np.mean(r), len(r))
+        r += gaussian_noise
+    # if neither a day nor an articial albedo map is supplied
+    else:
+        print("Error: please supply either a day of interest in the EPIC data \
+              or a synthetic array of albedo values.")
+        return
     
     # guess: alb is 0.25 everywhere
     init_guess = np.asarray([0.25 for n in range(ndim)])
@@ -400,32 +447,6 @@ def make_chain(day, nwalkers, nsteps, ndim):
     sampler.run_mcmc(init_pos, nsteps)
     return sampler.chain
 
-def make_chain_artificial(alpha, nwalkers, nsteps, ndim):
-    """
-    Input: a synthetic array of albedo data, the number of albedo slices 
-    (parameters) being fit, the number of walkers, and the number of steps 
-    to take in the chain
-    Output: an emcee sampler object's chain
-    """
-    t, r = lightcurve(alpha, 1.0, 1.0, 10000, alb=True) # get synthetic data
-    
-    r_err = 0.02*r # assuming 2% error     
-    # add gaussian noise to the data with a variance of up to 2% mean app alb
-    gaussian_noise = np.random.normal(0, 0.02*np.mean(r), len(r))
-    r += gaussian_noise
-    
-    # guess: alb is 0.25 everywhere
-    init_guess = np.asarray([0.25 for n in range(ndim)])
-    # better guess: maximize the likelihood
-    opt_params  = opt_lnlike(init_guess, t, r, r_err) 
-    
-    # initialize nwalkers in a gaussian ball centered on the opt_params
-    init_pos = init_walkers(opt_params, t, r, r_err, ndim, nwalkers)
-    
-    # set up the sampler object and run MCMC 
-    sampler = emcee.EnsembleSampler(nwalkers, ndim, lnpost, args=(t, r, r_err))
-    sampler.run_mcmc(init_pos, nsteps)
-    return sampler.chain
 
 def flatten_chain(chain, burnin):
     """
@@ -435,13 +456,15 @@ def flatten_chain(chain, burnin):
     ndim = len(chain[0][0]) # number of params being fit 
     return chain[:,burnin:,:].reshape(-1, ndim)
 
+
 def walker_paths_1dim(chain, dimension):
     """
-    Input: an emcee sampler chain and the dimension (parameter) of interest.
+    Input: an emcee sampler chain and the dimension (parameter, beginning 
+    at 0 and ending at ndim-1) of interest
     
-    Builds an array of arrays, where each entry in the array represents a 
-    a single walker and each subarray contains the path taken by a particular 
-    walker in parameter space. 
+    Builds 2D array where each entry in the array represents a single walker 
+    and each subarray contains the path taken by a particular walker in 
+    parameter space. 
     
     Output: (nwalker x nsteps) 2D array of paths for each walker
     """
@@ -458,10 +481,11 @@ def walker_paths_1dim(chain, dimension):
 
     # obtain the paths of all walkers for some dimension (parameter)
     walker_paths = []
-    for n in range(nwalkers):
-        single_path = [ chain[n][s][dimension] for s in range(nsteps) ]
-        walker_paths.append(single_path)
+    for n in range(nwalkers): # for each walker
+        single_path = [chain[n][s][dimension] for s in range(nsteps)] # 1 path
+        walker_paths.append(single_path) # append the path
     return walker_paths
+
 
 def plot_walkers_1dim(chain, dimension):
     """
@@ -486,9 +510,9 @@ def plot_walkers_1dim(chain, dimension):
 
     step_number = [x for x in range(1, nsteps+1)] # steps taken as an array
     
-    for n in range(nwalkers):
-        y = [ chain[n][s][dimension] for s in range(nsteps) ]
-        plt.plot(step_number, y)
+    for n in range(nwalkers): # for each walker
+        single_path = [chain[n][s][dimension] for s in range(nsteps)] # 1 path
+        plt.plot(step_number, single_path) # plot the path versus steps
         
         
 def plot_walkers_all(chain):
@@ -508,13 +532,13 @@ def plot_walkers_all(chain):
     fig = plt.figure()
     plt.subplots_adjust(hspace=0.1)
     for n in range(ndim):   # for each param
-        paths = walker_paths_1dim(chain, n) # obtain paths for each param
+        paths = walker_paths_1dim(chain, n) # obtain paths for the param
         fig.add_subplot(ndim,1,n+1) # add a subplot for the param
         plt.xlabel("Steps")
-        #plt.twiny()
         for p in paths:
-            plt.plot(step_number, p,color='k',alpha=0.3) # plot all walker paths
+            plt.plot(step_number, p,color='k',alpha=0.3) # all walker paths
             plt.ylabel(r"$A$"+"[%d]"%(n)) # label parameter
+
 
 def cornerplot(chain, burnin):
     """
@@ -529,10 +553,11 @@ def cornerplot(chain, burnin):
     
     label_albs = [] # setting the labels for the corner plot
     for n in range(ndim):
-        label_albs.append(r"$A$"+"[%d]"%(n))
+        label_albs.append(r"$A$"+"[%d]"%(n)) # A[0], A[1], ...
     
-    plt.rcParams.update({'font.size':12})
-        
+    plt.rcParams.update({'font.size':12}) # increased font size
+    
+    # include lines denoting the 16th, 50th (median) and 84th quantiles     
     corner.corner(samples, labels=label_albs, quantiles=(0.16, 0.5, 0.84), 
                   levels=(1-np.exp(-0.5),))
     
@@ -543,9 +568,10 @@ def mcmc_results(chain, burnin):
     """
     Input: an emcee sampler chain and the steps taken during the burnin
     
-    Averages the parameters of each dimension in parameter space to obtain 
-    the results 
-    Output: an array of the mean parameters (albedos) found via MCMC
+    Averages the position of all walkers in each dimension of parameter space 
+    to obtain the mean MCMC results 
+    
+    Output: an array representing the mean albedo map found via MCMC
     """
     ndims = len(chain[0][0]) # obtain no. of dimensions
     flat = flatten_chain(chain, burnin) # flattened chain, post-burnin
@@ -555,15 +581,15 @@ def mcmc_results(chain, burnin):
         param_n_temp = []
         for w in range(len(flat)):
             param_n_temp.append(flat[w][n])
-        mcmc_params.append(np.mean(param_n_temp))
+        mcmc_params.append(np.mean(param_n_temp)) # append the mean
     return mcmc_params
 
-def mcmc_percentiles(chain, burnin, pers=[16,50,84]):
+def mcmc_percentiles(chain, burnin, pers=[16,84]):
     """
     Input: an emcee sampler chain and the steps taken during the burnin
-    Output: an array of the percentiles desired by the user (default: 16th, 
-    50th, and 84th) found by MCMC, with dimension = 3 x (no. of 
-    albedo sices)
+    
+    Output: an array of the percentiles desired by the user (default: 16th and 
+    84th) found by MCMC
     """
     ndims = len(chain[0][0]) # obtain no. of dimensions
     flat = flatten_chain(chain, burnin) # flattened chain, post-burnin
@@ -583,8 +609,9 @@ def mcmc_write(day, chain, burnin, output_file=None):
     if none is given)
     
     Writes the parameters returned by MCMC to a tab-delimited file for 
-    later loading in. Each column represents a slice. This function is designed 
-    to be run many times to then compare several days of data. 
+    later loading in. Each column represents an albedo slice. This function is 
+    designed to be run many times, appending always to the same file, to then 
+    compare several days of data. 
     
     Output: None
     """
@@ -604,16 +631,23 @@ def mcmc_write(day, chain, burnin, output_file=None):
 def mcmc_write_percentile(day, chain, burnin, pers=50, output_file=None):
     """
     Input: the day being fit, an emcee sampler chain, the steps taken during 
-    the burnin, and the name of an output file (optional; set automatically
-    if none is given)
+    the burnin, the percentile we wish to write to a file, and the name of an 
+    output file (optional; set automatically if none is given)
     
     Writes the given percentile (default 50th, i.e., the median) returned by 
     MCMC to a tab-delimited file for later loading in. Each column represents
-    a slice. This function is designed to be run many times to then compare
-    several days of data.
+    an albedo slice. This function is designed to be run many times, 
+    appending always to the same file, to then compare several days of data.
+    
+    Currently only writes one percentile at a time. 
     
     Output: None
     """
+    
+    if not(type(pers) in [int, float]):
+        print("Error: please input only one percentile. This function does \
+              not yet support writing multiple percentiles to multiple files.")
+        return 
     
     mcmc_pers = mcmc_percentiles(chain, burnin, pers)
     
@@ -639,9 +673,10 @@ def map_into_fwdmod(chain, burnin, nsamples=None, day=None):
     which we are fitting (default is None, in which case, we are plotting 
     the MCMC results for artificial data)
     
-    If nsamples is None (default), plots only the mean MCMC results. If an 
-    integer is given, takes nsamples random samples and plots them too as 
-    almost-transparent black lines  
+    If nsamples is None (default), plots only the result of plugging in the 
+    mean MCMC results (i.e., A(phi)) into the forward model. If an integer is 
+    given, takes nsamples random samples and plots them as semi-transparent 
+    black lines.
     
     Output: None
     """
@@ -665,6 +700,7 @@ def map_into_fwdmod(chain, burnin, nsamples=None, day=None):
         flat = flatten_chain(chain, burnin) # get a flattened chain to sample
         sample_params = flat[np.random.randint(len(flat),size=nsamples)] # samples
         
+        # raw EPIC data
         fig, ax = plt.subplots()
         ax.errorbar(np.linspace(0,23.93*timespan,len(t)), ref, yerr=ref_err, fmt='.', 
                     label="EPIC data", markerfacecolor="cornflowerblue", 
@@ -682,6 +718,7 @@ def map_into_fwdmod(chain, burnin, nsamples=None, day=None):
                 ax.plot(sample_time, sample_ref, color='k', alpha=0.1, 
                         label="Random samples (%d)"%nsamples)
         
+        # mean MCMC albedo map
         ax.plot(mean_mcmc_time, mean_mcmc_ref, label="Mean MCMC parameters", 
                     color='red')
         ax.set_ylabel("Apparent Albedo "+r"$A^*$")
@@ -689,6 +726,7 @@ def map_into_fwdmod(chain, burnin, nsamples=None, day=None):
         ax.set_title("EPIC fit - MCMC"+r" ["+r"$d = $"+date_after(day)
                                            +", $\phi_0 = $"+"%.1f]"%phi[0])
     
+        # determine which labels to use (must be separate from above condition)
         if nsamples != None:
             handles, labels = ax.get_legend_handles_labels()
             handles = [handles[-1], handles[-2], handles[0]]
@@ -703,10 +741,6 @@ def map_into_fwdmod(chain, burnin, nsamples=None, day=None):
                                                        1.0, 10000, 
                                                        0, plot=False,
                                                        alb=True)
-        # a series of random samples    
-        flat = flatten_chain(chain, burnin) # get a flattened chain to sample
-        sample_params = flat[np.random.randint(len(flat),size=nsamples)] # samples
-        
         fig, ax = plt.subplots()
         
         if nsamples != None:
@@ -737,23 +771,27 @@ def map_into_fwdmod(chain, burnin, nsamples=None, day=None):
 def map_into_eckert(params, nlats=200, nlons=200, day=None):
     """
     Input: the params from MCMC, the no. of latitude points to use (200 by 
-    default for resolution purposes), and the number of longitude points to 
-    use (200 by default so that the gradient between different filled 
-    contours is sharp), and the date of interest for the EPIC data, if desired
+    default for resolution purposes), the no. of longitude points to use (200 
+    by default so that the gradient between different filled  contours is 
+    sharp), and the date of interest for the EPIC data, if desired
     
     Produces a map of the Earth with filled countours corresponding to the 
     albedo of a given slice. 
     
-    ** CURRENTLY ONLY WORKS FOR 6 OR 8 SLICES
+    ** CURRENTLY ONLY WORKS FOR 6 OR 8 SLICES. Should be generalized.
     
     Output: None
     """
     
+    if not(len(params) in [6,8]):
+        print("Error: Eckert projections are currently only implemented for \
+              6 OR 8 slice maps.")
+        return
+    
     # if we are showing EPIC results from ONE date
     if type(day) in [int, float]:
         t, phi, ref, ref_err, nans = EPIC_data(day, False) 
-        # cartopy longitude decreases as the planet spins and is 0 at Greenwich
-        # the forward model does the same but is 0 at 180 deg West from Greenwich        
+        # cartopy longitude decreases as the planet spins and is 0 at Greenwich      
         lons = np.linspace(2*np.pi, 0, nlons) # longitude spanned
 
     # if we are showing multi-day real data or artificial results    
@@ -762,11 +800,13 @@ def map_into_eckert(params, nlats=200, nlons=200, day=None):
     
     nslices = int(len(params)) # longitudinal slices in the map
     interval = int(nlons/nslices)  # entries in longitude array which span one slice
+    # for example, if we have 200 longitude points and 8 slices, each slice
+    # will be made up of 200/8 = 25 longitudes
 
     lats = np.linspace(-np.pi/2, np.pi/2, nlats)
 
-    lats, lons = np.meshgrid(lats, lons)
-    lats = np.rad2deg(lats)
+    lats, lons = np.meshgrid(lats, lons) # grid of longitude and latitude
+    lats = np.rad2deg(lats) # convert to degrees
     lons = np.rad2deg(lons)
     
     # eckert IV projection
@@ -777,7 +817,7 @@ def map_into_eckert(params, nlats=200, nlons=200, day=None):
     
     # if 6 slices:
     if nslices == 6:
-        for i in range(nlons):
+        for i in range(nlons): # for each of the longitude points
             if (i <= interval):
                 temp = [params[0] for i in range(nlats)]
             elif (i <= 2*interval):
@@ -814,6 +854,7 @@ def map_into_eckert(params, nlats=200, nlons=200, day=None):
             data.append(temp)
        
     # make the map using a Plate Carree transformation
+    # colour map: greys
     cs = ax.contourf(lons, lats, data, transform=ccrs.PlateCarree(),
                      cmap='gist_gray', alpha=0.3)
     
@@ -844,8 +885,7 @@ def date_after(d):
     """
     Input: an integer d
     
-    Useful to quickly find out the actual calendar date of some day 
-    in the EPIC dataset. 
+    Quickly find out the actual calendar date of some day in the EPIC dataset. 
     
     Output: the date, d days after 2015-06-13 00:00:00.000
     """
@@ -856,125 +896,7 @@ def date_after(d):
     t_new_iso = t_new.iso # extract the ISO (YY:MM:DD HH:MM:SS) of the new date
     t_new_iso = t_new_iso.replace(" 00:00:00.000", "") # truncate after DD
     
-    return t_new_iso 
-    
-# In[]:
-# TESTING
-### Testing MCMC ###
-
-TEST_DAY = 697 # the date of interest, if a specific date is desired
-NDIM = 8 # the no. of albedo slices
-NWALKERS = 100 # the no. of walkers
-NSTEPS = 500 # the no. of steps to take
-BURNIN = 150 # the no. of steps in the burnin period
-PERCENTILE = 84 # 1 or more percentiles (if >1, provide an array)
-
-def test_all(ndim, nwalkers, nsteps, burnin, percentiles=None, datafile=None, 
-             day=None):
-    """
-    Input: The no. of dimensions (albedo slices) in use, the no. of walkers, 
-    no. of steps, and burnin step count to use in emcee, the datafile to which
-    we wish to write our results (default: no name given), and the EPIC date
-    of interest (default: no date given, so a random "great" day is selected.)
-    
-    Tests all of the various functions above. For debugging. Uncomment the 
-    functions you wish to test.
-    
-    Output: None
-    """
-    
-    if day == None: # if no date specified 
-        # load in great days (no nans and more than 17 time points in 24h)
-        df = open("great_days.dat", "r")
-        contents = df.readlines()
-        great_days = [int(c) for c in contents]
-        test_date = random.choice(great_days)
-        df.close()
-    else:
-        test_date = day
-    print("Day: "+str(test_date))
-    print("Date: "+date_after(test_date))
-
-    # Show the raw data
-    #EPIC_data(test_date)
-    
-    # Show raw data & fit it by just plugging in to the forward model
-    #fit_EPIC(test_date)
-    
-    # Essential: make the MCMC chain
-    chaino = make_chain(test_date, nwalkers, nsteps, ndim) # MCMC
-    
-    # MCMC diagnostics 
-    #plot_walkers_all(chaino) # plot walkers' paths
-    #cornerplot(chaino, burnin) # corner plot
-    
-    # MCMC results 
-    albmap = mcmc_results(chaino, burnin) # get the map
-    print(str(np.round(albmap,3))) # print the params, rounded to 3 decimals
-    
-    #if percentiles != None: 
-    #    alb_pers = mcmc_percentiles(chaino, burnin, percentiles) # get percentiles
-    #    print(str(np.round(alb_pers,3))) # print percentiles, rounded to 3 decimals
-    
-    # Write to files
-    #if datafile != None:    
-    #    #mcmc_write(test_date, chaino, burnin, datafile) # mean params 
-    #    if percentiles != None:
-    #        mcmc_write_percentile(test_date, chaino, burnin, percentiles, datafile) # percentiles 
-    
-    # Quality of MCMC fits: plots/Eckert projections
-    #map_into_fwdmod(chaino, burnin, day=test_date) # one map
-    #map_into_fwdmod(chaino, burnin, nsamples=50, day=test_date) # plot multiple maps
-    map_into_eckert(albmap, day=test_date) # plot an eckert projection
-
-#test_all(NDIM, NWALKERS, NSTEPS, BURNIN) # random great day
-#test_all(NDIM, NWALKERS, NSTEPS, BURNIN, percentiles=PERCENTILE, day=TEST_DAY) # a specific date, set above 
- 
-
-# In[]:
-# WRITING TO FILES 
-
-# Load in "great" days
-#df = open("great_days.dat", "r")
-#contents = df.readlines()
-#great_days = [int(c) for c in contents]
-#df.close()
-
-# Writing all of the mean MCMC params to a file
-# To use, first comment out mcmc_write_percentile()
-# And uncomment mcmc_write() 
-#for g in great_days:
-#    test_all(NDIM, NWALKERS, NSTEPS, BURNIN, datafile="results_all_six.dat", 
-#             day=g)
-
-# Writing all of the 16th percentiles to a file
-# Comment out mcmc_write()
-# Uncomment mcmc_write_percentile()
-# Set the percentile above 
-#for g in great_days:
-#    test_all(NDIM, NWALKERS, NSTEPS, BURNIN, PERCENTILE, 
-#             "results_all_six_16per.dat", g)
-    
-# Writing all of the 84th percentiles to a file
-# Comment out mcmc_write()
-# Uncomment mcmc_write_percentile()
-#for g in great_days:
-#    test_all(NDIM, NWALKERS, NSTEPS, BURNIN, PERCENTILE, 
-#             "results_all_six_84per_new.dat", g)
-
-# In[]:
-# OTHER TESTS #
-
-### Testing quality of a fit obtained by maximizing our likelihood ###
-#alb_guess = [0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25]
-#t, phi, ref, ref_err, nanners = EPIC_data(415,False) 
-#fit_params = opt_lnlike(alb_guess, t, ref, ref_err) # maximize the likelihood 
-#phi_init = phi[0]*np.pi/180.0
-#fit_time, fit_alb = lightcurve(fit_params, 1, 1, 10000, phi_init, alb=True)
-#plt.plot(fit_time, fit_alb, marker='.', linestyle='')
-#plt.plot((t-t[0])*23.93, ref, marker='.', linestyle='')
-
-#fit_EPIC_maxlike(415, 8)
+    return t_new_iso
     
 
 
